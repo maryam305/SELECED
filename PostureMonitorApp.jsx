@@ -34,9 +34,9 @@ import 'package:permission_handler/permission_handler.dart';
 // ============================================================================
 
 void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  await DatabaseService().database; // Initialize database
-  runApp(const PostureMonitorApp());
+    WidgetsFlutterBinding.ensureInitialized();
+    await DatabaseService().database; // Initialize database
+    runApp(const PostureMonitorApp());
 }
 
 class PostureMonitorApp extends StatelessWidget {
