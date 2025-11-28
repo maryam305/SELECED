@@ -1,707 +1,714 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
-import { Play, Pause, Wifi, WifiOff, Activity, Award, Target, Zap, CheckCircle2, AlertCircle } from 'lucide-react';
+import { 
+  AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, 
+  BarChart, Bar, Cell 
+} from 'recharts';
+import { 
+  Play, Pause, Wifi, WifiOff, Activity, TrendingUp, Award, Target, 
+  Zap, CheckCircle2, AlertCircle, Calendar as CalendarIcon, 
+  Settings as SettingsIcon, LayoutDashboard, ChevronLeft, ChevronRight,
+  Save, RotateCcw, Monitor
+} from 'lucide-react';
 
-
-
-// Apple Fitness inspired color palette
+// --- CONSTANTS & THEME ---
 const COLORS = {
-  moveRed: '#FA114F',
-  exerciseGreen: '#92E82A',
-  standBlue: '#00C7BE',
-  gradientStart: '#FF2D55',
-  gradientEnd: '#FF6B35',
-  darkBg: '#1C1C1E',
-  cardBg: '#2C2C2E',
-  lightText: '#F5F5F7',
-  mutedText: '#98989D',
+  // Posture Status Colors (More Vibrant)
+  moveRed: '#FF453A',        // Vibrant Red for Poor/Move
+  exerciseGreen: '#34C759',  // Vibrant Green for Excellent
+  standBlue: '#00A6FF',      // Vibrant Blue for Good
+  warningYellow: '#FFD60A',   // Vibrant Yellow for Fair
+  
+  // UI Colors
+  darkBg: '#0A0A0A',          // Deeper black background
+  cardBg: '#1C1C1E',          // Dark card background
+  cardHighlight: '#2C2C2E',   // Slightly lighter card/hover
+  lightText: '#FFFFFF',
+  mutedText: '#8E8E93',
+  divider: '#38383A',
+  
+  // Accent for branding/gradients
+  accentPink: '#FF3B8A',
+  accentBlue: '#007AFF'
 };
 
-// Status definitions
-const STATUS = {
-  EXCELLENT: { label: 'Excellent', color: COLORS.exerciseGreen, threshold: 5 },
-  GOOD: { label: 'Good', color: COLORS.standBlue, threshold: 15 },
-  FAIR: { label: 'Fair', color: '#FFD60A', threshold: 25 },
-  POOR: { label: 'Poor', color: COLORS.moveRed, threshold: Infinity },
+const DEFAULT_SETTINGS = {
+  smoothingAlpha: 0.15,
+  excellentThreshold: 5,
+  goodThreshold: 15,
+  fairThreshold: 25,
+  pollInterval: 200,
+  targetDurationMins: 30
 };
 
-function getStatus(angle) {
-  const absAngle = Math.abs(angle);
-  if (absAngle < STATUS.EXCELLENT.threshold) return STATUS.EXCELLENT;
-  if (absAngle < STATUS.GOOD.threshold) return STATUS.GOOD;
-  if (absAngle < STATUS.FAIR.threshold) return STATUS.FAIR;
-  return STATUS.POOR;
-}
-
+// --- HELPER FUNCTIONS ---
 const smooth = (prev, next, alpha) => prev * (1 - alpha) + next * alpha;
 
+// Generate mock history data for a specific month
+const generateMockMonthData = (year, month) => {
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const days = [];
+  
+  for (let i = 1; i <= daysInMonth; i++) {
+    // Random realistic score between 40 and 100
+    // Bias towards better scores
+    const baseScore = Math.floor(Math.random() * 40) + 60; 
+    const score = Math.min(100, baseScore);
+    const duration = Math.floor(Math.random() * 60) + 10;
+    
+    days.push({
+      date: new Date(year, month, i).toISOString().split('T')[0],
+      dayNum: i,
+      score: score,
+      duration: duration,
+      status: score > 90 ? 'Excellent' : score > 75 ? 'Good' : score > 50 ? 'Fair' : 'Poor'
+    });
+  }
+  return days;
+};
+
 export default function App() {
-  // ESP32 connection
-  const [espIP, setEspIP] = useState('192.168.1.100');
+  // --- STATE ---
+  const [activeTab, setActiveTab] = useState('dashboard'); // dashboard, history, settings
+  
+  // Connection
+  const [espIP, setEspIP] = useState(() => localStorage.getItem('espIP') || '192.168.1.100');
   const [espPort, setEspPort] = useState('80');
   const [isConnected, setIsConnected] = useState(false);
   const [connectionError, setConnectionError] = useState('');
   
-  // Session state
+  // Session
   const [isActive, setIsActive] = useState(false);
   const [currentAngle, setCurrentAngle] = useState(0);
   const [liveData, setLiveData] = useState([]);
   const [sessionData, setSessionData] = useState([]);
   const [notification, setNotification] = useState(null);
   const [streak, setStreak] = useState(0);
-  const [achievements, setAchievements] = useState([]);
   
-  // Settings
-  const [settings, setSettings] = useState({
-    smoothingAlpha: 0.25,
-    excellentThreshold: 5,
-    goodThreshold: 15,
-    fairThreshold: 25,
-    pollInterval: 400,
+  // Configuration
+  const [settings, setSettings] = useState(() => {
+    const saved = localStorage.getItem('postureSettings');
+    return saved ? JSON.parse(saved) : DEFAULT_SETTINGS;
   });
-  
-  // UI state
-  const [showSetup, setShowSetup] = useState(false);
-  const [sessionStartTime, setSessionStartTime] = useState(null);
-  const [elapsedTime, setElapsedTime] = useState(0);
-  
+
+  // Calendar State
+  const [currentDate, setCurrentDate] = useState(new Date());
+  const [historyData, setHistoryData] = useState([]);
+
+  useEffect(() => {
+    setHistoryData(generateMockMonthData(currentDate.getFullYear(), currentDate.getMonth()));
+  }, [currentDate]);
+
+  // Refs
   const lastSmoothedRef = useRef(0);
   const pollingRef = useRef(null);
-  const bestStreakRef = useRef(0);
+  const sessionStartTimeRef = useRef(null);
+  const [elapsedTime, setElapsedTime] = useState(0);
 
-  // Connect to ESP32
+  // Save settings on change
+  useEffect(() => {
+    localStorage.setItem('postureSettings', JSON.stringify(settings));
+    localStorage.setItem('espIP', espIP);
+  }, [settings, espIP]);
+
+  // --- LOGIC ---
+
+  const getStatus = (angle) => {
+    const absAngle = Math.abs(angle);
+    if (absAngle <= settings.excellentThreshold) return { label: 'Excellent', color: COLORS.exerciseGreen, score: 100 };
+    if (absAngle <= settings.goodThreshold) return { label: 'Good', color: COLORS.standBlue, score: 80 };
+    if (absAngle <= settings.fairThreshold) return { label: 'Fair', color: COLORS.warningYellow, score: 50 };
+    return { label: 'Poor', color: COLORS.moveRed, score: 20 };
+  };
+
   const connectToESP = async () => {
     try {
-      const url = `http://${espIP}:${espPort}/angle`;
-      const response = await fetch(url, { 
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 2000);
+      
+      const response = await fetch(`http://${espIP}:${espPort}/angle`, { 
         method: 'GET',
-        mode: 'cors',
-        headers: { 'Accept': 'application/json' }
-      });
+        signal: controller.signal
+      }).catch(err => { throw new Error('Timeout or Network Error'); });
+      
+      clearTimeout(timeoutId);
       
       if (response.ok) {
         setIsConnected(true);
         setConnectionError('');
-        setNotification({ type: 'success', message: 'Connected to your device' });
-        setTimeout(() => setNotification(null), 3000);
-        return true;
+        showNotification('success', 'Connected to device');
       } else {
-        setConnectionError(`Connection failed: ${response.status}`);
-        return false;
+        throw new Error('Device found but refused connection');
       }
     } catch (error) {
-      setConnectionError(`Cannot reach ESP32. Check IP address.`);
+      setConnectionError('Cannot reach device');
       setIsConnected(false);
-      return false;
     }
   };
 
-  // Timer for elapsed time
-  useEffect(() => {
-    if (!isActive || !sessionStartTime) return;
-    
-    const interval = setInterval(() => {
-      setElapsedTime(Math.floor((Date.now() - sessionStartTime) / 1000));
-    }, 1000);
-    
-    return () => clearInterval(interval);
-  }, [isActive, sessionStartTime]);
+  const showNotification = (type, message) => {
+    setNotification({ type, message });
+    setTimeout(() => setNotification(null), 3000);
+  };
 
-  // Poll ESP32 for angle data
+  // Timer
   useEffect(() => {
-    if (!isActive || !isConnected) {
-      if (pollingRef.current) {
-        clearInterval(pollingRef.current);
-        pollingRef.current = null;
-      }
+    let interval;
+    if (isActive) {
+      if (!sessionStartTimeRef.current) sessionStartTimeRef.current = Date.now();
+      interval = setInterval(() => {
+        setElapsedTime(Math.floor((Date.now() - sessionStartTimeRef.current) / 1000));
+      }, 1000);
+    } else {
+      sessionStartTimeRef.current = null;
+    }
+    return () => clearInterval(interval);
+  }, [isActive]);
+
+  // Polling Loop
+  useEffect(() => {
+    if (!isActive && !isConnected) {
+      if (pollingRef.current) clearInterval(pollingRef.current);
       return;
     }
 
     const pollESP = async () => {
+      if (!isConnected) return;
       try {
-        const url = `http://${espIP}:${espPort}/angle`;
-        const response = await fetch(url);
-        
+        const response = await fetch(`http://${espIP}:${espPort}/angle`);
         if (response.ok) {
           const data = await response.json();
           const rawAngle = parseFloat(data.angle || 0);
           
-          // Apply smoothing
-          const alpha = settings.smoothingAlpha;
-          const smoothed = Number(smooth(lastSmoothedRef.current, rawAngle, alpha).toFixed(1));
+          const smoothed = Number(smooth(lastSmoothedRef.current, rawAngle, settings.smoothingAlpha).toFixed(1));
           lastSmoothedRef.current = smoothed;
-          
           setCurrentAngle(smoothed);
-          
+
           const status = getStatus(smoothed);
-          const timestamp = Date.now();
-          const point = { t: timestamp, angle: smoothed, status: status.label };
           
-          setLiveData(prev => [...prev.slice(-240), point]);
-          setSessionData(prev => [...prev, point]);
-          
-          // Streak tracking
-          if (status.label === 'Excellent' || status.label === 'Good') {
-            setStreak(prev => {
-              const newStreak = prev + 1;
-              if (newStreak > bestStreakRef.current) {
-                bestStreakRef.current = newStreak;
-                if (newStreak === 60) {
-                  addAchievement('1 Min Perfect', '🔥');
-                } else if (newStreak === 300) {
-                  addAchievement('5 Min Perfect', '⭐');
-                }
-              }
-              return newStreak;
-            });
-          } else if (status.label === 'Poor') {
-            setStreak(0);
-            if (!notification) {
-              setNotification({ 
-                type: 'warning', 
-                message: 'Straighten your back' 
+          if (isActive) {
+            const now = Date.now();
+            const point = { t: now, angle: smoothed, status: status.label };
+            setLiveData(prev => [...prev.slice(-100), point]);
+            setSessionData(prev => [...prev, point]);
+
+            // Streak Logic
+            if (['Excellent', 'Good'].includes(status.label)) {
+              setStreak(s => {
+                const newStreak = s + 1;
+                if (newStreak % 60 === 0) showNotification('achievement', `${newStreak / 60} Min Perfect Streak!`);
+                return newStreak;
               });
-              setTimeout(() => setNotification(null), 4000);
+            } else if (status.label === 'Poor') {
+              setStreak(0);
             }
           }
-        } else {
-          setIsConnected(false);
-          setConnectionError('Lost connection');
         }
-      } catch (error) {
-        setIsConnected(false);
-        setConnectionError(`Connection error`);
+      } catch (err) {
+        // Silent fail on individual poll
       }
     };
 
     pollingRef.current = setInterval(pollESP, settings.pollInterval);
-    
-    return () => {
-      if (pollingRef.current) {
-        clearInterval(pollingRef.current);
-      }
-    };
-  }, [isActive, isConnected, espIP, espPort, settings, notification]);
+    return () => clearInterval(pollingRef.current);
+  }, [isActive, isConnected, espIP, espPort, settings]);
 
-  const addAchievement = (title, emoji) => {
-    setAchievements(prev => [...prev, { title, emoji, time: Date.now() }]);
-    setNotification({ type: 'achievement', message: `${emoji} ${title}!` });
-    setTimeout(() => setNotification(null), 5000);
-  };
-
-  // Start/stop session
   const toggleSession = () => {
     if (!isActive) {
-      if (!isConnected) {
-        setNotification({ type: 'error', message: 'Connect to ESP32 first' });
-        setTimeout(() => setNotification(null), 3000);
-        return;
-      }
+      if (!isConnected) return showNotification('error', 'Connect device first');
       setIsActive(true);
-      setLiveData([]);
       setSessionData([]);
+      setLiveData([]);
       setStreak(0);
-      bestStreakRef.current = 0;
-      setAchievements([]);
-      setSessionStartTime(Date.now());
       setElapsedTime(0);
-      lastSmoothedRef.current = 0;
     } else {
       setIsActive(false);
-      setSessionStartTime(null);
-      if (sessionData.length > 30) {
-        addAchievement('Session Complete', '✅');
-      }
+      showNotification('achievement', 'Session Saved');
     }
   };
 
-  // Stats calculation
-  const stats = useMemo(() => {
+  // Stats
+  const sessionStats = useMemo(() => {
+    if (!sessionData.length) return { score: 0, perfect: 0 };
     const total = sessionData.length;
-    const excellent = sessionData.filter(p => p.status === 'Excellent').length;
-    const good = sessionData.filter(p => p.status === 'Good').length;
-    const fair = sessionData.filter(p => p.status === 'Fair').length;
-    const poor = sessionData.filter(p => p.status === 'Poor').length;
-    
-    const perfectPercent = total ? Math.round(((excellent + good) / total) * 100) : 0;
-    
+    const good = sessionData.filter(d => ['Excellent', 'Good'].includes(d.status)).length;
     return {
-      total,
-      excellent,
-      good,
-      fair,
-      poor,
-      perfectPercent,
-      excellentPercent: total ? Math.round((excellent / total) * 100) : 0,
+      score: Math.round((good / total) * 100),
+      perfect: Math.round((sessionData.filter(d => d.status === 'Excellent').length / total) * 100)
     };
   }, [sessionData]);
 
-  const formatTime = (seconds) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  // Calendar Helpers
+  const getMonthName = (date) => date.toLocaleString('default', { month: 'long', year: 'numeric' });
+  
+  const getCalendarDays = () => {
+    const year = currentDate.getFullYear();
+    const month = currentDate.getMonth();
+    const firstDay = new Date(year, month, 1).getDay(); // 0 = Sunday
+    const blanks = Array(firstDay).fill(null);
+    return [...blanks, ...historyData];
   };
 
-  // Ring progress data
-  const ringData = [
-    {
-      name: 'Perfect',
-      value: stats.perfectPercent,
-      fill: COLORS.exerciseGreen,
-    }
-  ];
+  // --- RENDER ---
 
   return (
-    <div 
-      className="min-h-screen flex items-center justify-center p-6"
-      style={{ 
-        background: `linear-gradient(135deg, ${COLORS.darkBg} 0%, #000000 100%)`,
-      }}
-    >
-      <div className="w-full max-w-7xl">
-        {/* Main Grid Layout */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          
-          {/* Left Column - Main Display */}
-          <div className="lg:col-span-2 space-y-6">
-            
-            {/* Hero Card - Live Posture */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="relative overflow-hidden rounded-3xl p-8"
-              style={{ 
-                background: `linear-gradient(135deg, ${COLORS.cardBg} 0%, ${COLORS.darkBg} 100%)`,
-                boxShadow: '0 20px 60px rgba(0,0,0,0.4)',
-              }}
-            >
-              {/* Animated Background Gradient */}
-              <div 
-                className="absolute inset-0 opacity-20"
-                style={{
-                  background: `radial-gradient(circle at 50% 50%, ${getStatus(currentAngle).color} 0%, transparent 70%)`,
-                }}
-              />
-              
-              <div className="relative z-10">
-                <div className="flex items-center justify-between mb-8">
-                  <div>
-                    <h1 
-                      className="text-5xl font-bold mb-2"
-                      style={{ color: COLORS.lightText }}
-                    >
-                      Posture
-                    </h1>
-                    <p style={{ color: COLORS.mutedText }} className="text-lg">
-                      {isActive ? 'Keep it up!' : 'Ready to start'}
-                    </p>
-                  </div>
-                  
-                  {isConnected && (
-                    <motion.div
-                      animate={{ scale: [1, 1.1, 1] }}
-                      transition={{ repeat: Infinity, duration: 2 }}
-                      className="flex items-center gap-2 px-4 py-2 rounded-full"
-                      style={{ backgroundColor: `${COLORS.exerciseGreen}20` }}
-                    >
-                      <div 
-                        className="w-2 h-2 rounded-full"
-                        style={{ backgroundColor: COLORS.exerciseGreen }}
-                      />
-                      <span 
-                        className="text-sm font-semibold"
-                        style={{ color: COLORS.exerciseGreen }}
-                      >
-                        Live
-                      </span>
-                    </motion.div>
-                  )}
-                </div>
-
-                {/* Main Angle Display */}
-                <div className="flex items-center justify-center gap-12 mb-8">
-                  <AppleRing angle={currentAngle} />
-                  
-                  <div className="text-center">
-                    <motion.div
-                      key={currentAngle}
-                      initial={{ scale: 0.9 }}
-                      animate={{ scale: 1 }}
-                      className="text-9xl font-bold mb-4"
-                      style={{ 
-                        color: getStatus(currentAngle).color,
-                        textShadow: `0 0 40px ${getStatus(currentAngle).color}40`
-                      }}
-                    >
-                      {Math.abs(currentAngle).toFixed(0)}°
-                    </motion.div>
-                    
-                    <motion.div
-                      animate={{ opacity: [0.5, 1, 0.5] }}
-                      transition={{ repeat: Infinity, duration: 2 }}
-                      className="inline-block px-6 py-3 rounded-full text-xl font-bold"
-                      style={{
-                        backgroundColor: `${getStatus(currentAngle).color}20`,
-                        color: getStatus(currentAngle).color,
-                      }}
-                    >
-                      {getStatus(currentAngle).label}
-                    </motion.div>
-                  </div>
-                </div>
-
-                {/* Session Stats Row */}
-                {isActive && (
-                  <div className="grid grid-cols-3 gap-4">
-                    <StatCard 
-                      icon={<Activity size={24} />}
-                      label="Time"
-                      value={formatTime(elapsedTime)}
-                      color={COLORS.standBlue}
-                    />
-                    <StatCard 
-                      icon={<Zap size={24} />}
-                      label="Streak"
-                      value={`${streak}s`}
-                      color={COLORS.exerciseGreen}
-                    />
-                    <StatCard 
-                      icon={<Target size={24} />}
-                      label="Perfect"
-                      value={`${stats.perfectPercent}%`}
-                      color={COLORS.moveRed}
-                    />
-                  </div>
-                )}
-              </div>
-            </motion.div>
-
-            {/* Live Chart */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.1 }}
-              className="rounded-3xl p-6"
-              style={{ 
-                backgroundColor: COLORS.cardBg,
-                boxShadow: '0 10px 30px rgba(0,0,0,0.3)',
-              }}
-            >
-              <h3 
-                className="text-xl font-bold mb-4"
-                style={{ color: COLORS.lightText }}
-              >
-                Live Tracking
-              </h3>
-              
-              <div style={{ height: 200 }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={liveData}>
-                    <defs>
-                      <linearGradient id="areaGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor={COLORS.exerciseGreen} stopOpacity={0.6} />
-                        <stop offset="100%" stopColor={COLORS.exerciseGreen} stopOpacity={0.05} />
-                      </linearGradient>
-                    </defs>
-                    <Area
-                      type="monotone"
-                      dataKey="angle"
-                      stroke={COLORS.exerciseGreen}
-                      strokeWidth={3}
-                      fill="url(#areaGradient)"
-                      isAnimationActive={false}
-                    />
-                    <XAxis dataKey="t" hide />
-                    <YAxis domain={[-45, 45]} stroke={COLORS.mutedText} />
-                    <Tooltip
-                      contentStyle={{
-                        backgroundColor: COLORS.cardBg,
-                        border: 'none',
-                        borderRadius: '12px',
-                        color: COLORS.lightText,
-                      }}
-                      labelFormatter={(v) => new Date(v).toLocaleTimeString()}
-                      formatter={(value) => [`${value}°`, 'Angle']}
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-            </motion.div>
-
-            {/* Session Summary */}
-            {sessionData.length > 0 && (
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.2 }}
-                className="rounded-3xl p-6"
-                style={{ 
-                  backgroundColor: COLORS.cardBg,
-                  boxShadow: '0 10px 30px rgba(0,0,0,0.3)',
-                }}
-              >
-                <h3 
-                  className="text-xl font-bold mb-6"
-                  style={{ color: COLORS.lightText }}
-                >
-                  Session Breakdown
-                </h3>
-                
-                <div className="grid grid-cols-4 gap-4">
-                  <QualityCard 
-                    label="Excellent"
-                    count={stats.excellent}
-                    percent={stats.excellentPercent}
-                    color={COLORS.exerciseGreen}
-                  />
-                  <QualityCard 
-                    label="Good"
-                    count={stats.good}
-                    percent={stats.total ? Math.round((stats.good / stats.total) * 100) : 0}
-                    color={COLORS.standBlue}
-                  />
-                  <QualityCard 
-                    label="Fair"
-                    count={stats.fair}
-                    percent={stats.total ? Math.round((stats.fair / stats.total) * 100) : 0}
-                    color="#FFD60A"
-                  />
-                  <QualityCard 
-                    label="Poor"
-                    count={stats.poor}
-                    percent={stats.total ? Math.round((stats.poor / stats.total) * 100) : 0}
-                    color={COLORS.moveRed}
-                  />
-                </div>
-              </motion.div>
-            )}
-          </div>
-
-          {/* Right Column - Controls & Info */}
-          <div className="space-y-6">
-            
-            {/* Connection Card */}
-            <motion.div
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              className="rounded-3xl p-6"
-              style={{ 
-                backgroundColor: COLORS.cardBg,
-                boxShadow: '0 10px 30px rgba(0,0,0,0.3)',
-              }}
-            >
-              <div className="flex items-center justify-between mb-4">
-                <h3 
-                  className="text-lg font-bold"
-                  style={{ color: COLORS.lightText }}
-                >
-                  Device
-                </h3>
-                {isConnected ? (
-                  <div className="flex items-center gap-2">
-                    <Wifi size={18} style={{ color: COLORS.exerciseGreen }} />
-                    <span 
-                      className="text-sm font-semibold"
-                      style={{ color: COLORS.exerciseGreen }}
-                    >
-                      Connected
-                    </span>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2">
-                    <WifiOff size={18} style={{ color: COLORS.moveRed }} />
-                    <span 
-                      className="text-sm font-semibold"
-                      style={{ color: COLORS.moveRed }}
-                    >
-                      Offline
-                    </span>
-                  </div>
-                )}
-              </div>
-
-              {!isConnected && (
-                <div className="space-y-3">
-                  <input
-                    type="text"
-                    value={espIP}
-                    onChange={(e) => setEspIP(e.target.value)}
-                    placeholder="ESP32 IP Address"
-                    className="w-full px-4 py-3 rounded-xl text-white font-medium"
-                    style={{ 
-                      backgroundColor: COLORS.darkBg,
-                      border: `2px solid ${COLORS.mutedText}40`,
-                    }}
-                  />
-                  
-                  <motion.button
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
-                    onClick={connectToESP}
-                    className="w-full py-3 rounded-xl font-bold text-white"
-                    style={{ 
-                      background: `linear-gradient(135deg, ${COLORS.standBlue} 0%, ${COLORS.exerciseGreen} 100%)`,
-                    }}
-                  >
-                    Connect Device
-                  </motion.button>
-                  
-                  {connectionError && (
-                    <p className="text-sm" style={{ color: COLORS.moveRed }}>
-                      {connectionError}
-                    </p>
-                  )}
-                </div>
-              )}
-
-              {isConnected && (
-                <p className="text-sm" style={{ color: COLORS.mutedText }}>
-                  {espIP}:{espPort}
-                </p>
-              )}
-            </motion.div>
-
-            {/* Main Control Button */}
-            <motion.button
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              onClick={toggleSession}
-              disabled={!isConnected && !isActive}
-              className="w-full py-8 rounded-3xl font-bold text-2xl text-white relative overflow-hidden"
-              style={{ 
-                background: isActive 
-                  ? `linear-gradient(135deg, ${COLORS.moveRed} 0%, #FF2D55 100%)`
-                  : `linear-gradient(135deg, ${COLORS.exerciseGreen} 0%, ${COLORS.standBlue} 100%)`,
-                boxShadow: isActive
-                  ? `0 20px 40px ${COLORS.moveRed}40`
-                  : `0 20px 40px ${COLORS.exerciseGreen}40`,
-                opacity: (!isConnected && !isActive) ? 0.5 : 1,
-              }}
-            >
-              <motion.div
-                animate={{ 
-                  scale: isActive ? [1, 1.2, 1] : 1,
-                }}
-                transition={{ 
-                  repeat: isActive ? Infinity : 0,
-                  duration: 2,
-                }}
-                className="flex items-center justify-center gap-3"
-              >
-                {isActive ? (
-                  <>
-                    <Pause size={28} />
-                    End Session
-                  </>
-                ) : (
-                  <>
-                    <Play size={28} />
-                    Start Session
-                  </>
-                )}
-              </motion.div>
-            </motion.button>
-
-            {/* Achievements */}
-            {achievements.length > 0 && (
-              <motion.div
-                initial={{ opacity: 0, x: 20 }}
-                animate={{ opacity: 1, x: 0 }}
-                className="rounded-3xl p-6"
-                style={{ 
-                  backgroundColor: COLORS.cardBg,
-                  boxShadow: '0 10px 30px rgba(0,0,0,0.3)',
-                }}
-              >
-                <h3 
-                  className="text-lg font-bold mb-4 flex items-center gap-2"
-                  style={{ color: COLORS.lightText }}
-                >
-                  <Award size={20} style={{ color: COLORS.exerciseGreen }} />
-                  Achievements
-                </h3>
-                
-                <div className="space-y-2">
-                  {achievements.slice(-3).reverse().map((ach, i) => (
-                    <motion.div
-                      key={ach.time}
-                      initial={{ opacity: 0, x: -20 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: i * 0.1 }}
-                      className="flex items-center gap-3 p-3 rounded-xl"
-                      style={{ backgroundColor: COLORS.darkBg }}
-                    >
-                      <span className="text-2xl">{ach.emoji}</span>
-                      <span 
-                        className="font-semibold"
-                        style={{ color: COLORS.lightText }}
-                      >
-                        {ach.title}
-                      </span>
-                    </motion.div>
-                  ))}
-                </div>
-              </motion.div>
-            )}
-
-            {/* Tips Card */}
-            <motion.div
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: 0.3 }}
-              className="rounded-3xl p-6"
-              style={{ 
-                backgroundColor: COLORS.cardBg,
-                boxShadow: '0 10px 30px rgba(0,0,0,0.3)',
-              }}
-            >
-              <h3 
-                className="text-lg font-bold mb-3"
-                style={{ color: COLORS.lightText }}
-              >
-                💡 Pro Tip
-              </h3>
-              <p 
-                className="text-sm leading-relaxed"
-                style={{ color: COLORS.mutedText }}
-              >
-                Keep your screen at eye level and maintain a 90° angle at your elbows. 
-                Take micro-breaks every 25 minutes for best results.
-              </p>
-            </motion.div>
+    // Use inline style to force the dark background color consistently
+    <div className="flex h-screen text-white font-sans overflow-hidden selection:bg-pink-500 selection:text-white" style={{ backgroundColor: COLORS.darkBg }}>
+      
+      {/* --- SIDEBAR (Desktop) --- */}
+      <aside className="hidden md:flex w-72 flex-col border-r border-white/10 bg-neutral-900/50 backdrop-blur-xl p-6">
+        <div className="flex items-center gap-3 mb-10 px-2">
+          <Activity className="text-pink-500" size={32} />
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">Posture<span className="text-pink-500">Pro</span></h1>
+            <span className="text-xs text-gray-500 font-medium tracking-wider uppercase">Ultimate</span>
           </div>
         </div>
-      </div>
 
-      {/* Notifications */}
+        <nav className="flex-1 space-y-2">
+          <SidebarLink 
+            icon={<LayoutDashboard />} 
+            label="Dashboard" 
+            active={activeTab === 'dashboard'} 
+            onClick={() => setActiveTab('dashboard')} 
+          />
+          <SidebarLink 
+            icon={<CalendarIcon />} 
+            label="History" 
+            active={activeTab === 'history'} 
+            onClick={() => setActiveTab('history')} 
+          />
+          <SidebarLink 
+            icon={<SettingsIcon />} 
+            label="Settings" 
+            active={activeTab === 'settings'} 
+            onClick={() => setActiveTab('settings')} 
+          />
+        </nav>
+
+        <div className="mt-auto pt-6 border-t border-white/10">
+          <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-white/5">
+            <div className="flex items-center gap-3">
+              {/* Use the new, brighter green/red colors */}
+              <div className={`w-2.5 h-2.5 rounded-full ${isConnected ? 'bg-green-500 shadow-[0_0_8px_rgba(52,199,89,0.7)]' : 'bg-red-500 shadow-[0_0_8px_rgba(255,69,58,0.7)]'}`} />
+              <span className="text-sm font-medium text-gray-300">{isConnected ? 'Online' : 'Offline'}</span>
+            </div>
+            {isConnected && <Wifi size={16} className="text-green-500" />}
+          </div>
+        </div>
+      </aside>
+
+      {/* --- MAIN CONTENT --- */}
+      <main className="flex-1 flex flex-col h-full overflow-hidden relative">
+        
+        {/* Mobile Header */}
+        <div className="md:hidden flex items-center justify-between p-4 border-b border-white/10 bg-neutral-900/90 backdrop-blur-md z-20">
+          <div className="flex items-center gap-2">
+            <Activity className="text-pink-500" size={24} />
+            <span className="font-bold text-lg">PosturePro</span>
+          </div>
+          {/* Use the new, brighter green/red colors */}
+          <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4 md:p-8 lg:p-12 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
+          <div className="max-w-6xl mx-auto w-full">
+            <AnimatePresence mode="wait">
+              
+              {/* --- DASHBOARD --- */}
+              {activeTab === 'dashboard' && (
+                <motion.div 
+                  key="dashboard"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8"
+                >
+                  {/* Left Col: Main Gauge */}
+                  <div className="lg:col-span-2 space-y-6">
+                    <div className="relative bg-neutral-900/50 border border-white/10 rounded-[2.5rem] p-8 md:p-12 flex flex-col items-center justify-center overflow-hidden">
+                      {/* Using the new accent colors for a better gradient effect */}
+                      <div className="absolute top-0 left-0 right-0 h-1" style={{ background: `linear-gradient(to right, ${COLORS.accentPink}, #5856D6, ${COLORS.accentBlue})`, opacity: 0.5 }} />
+                      
+                      <AppleRing angle={currentAngle} status={getStatus(currentAngle)} size="large" />
+                      
+                      <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none mt-6">
+                        <span className="text-7xl md:text-8xl font-bold tracking-tighter tabular-nums drop-shadow-2xl">
+                          {Math.abs(currentAngle).toFixed(0)}°
+                        </span>
+                        <div 
+                          className="mt-2 px-4 py-1.5 rounded-full text-sm font-bold uppercase tracking-wider backdrop-blur-md"
+                          style={{ 
+                            backgroundColor: `${getStatus(currentAngle).color}20`, 
+                            color: getStatus(currentAngle).color,
+                            // Adding shadow for clarity on dark background
+                            boxShadow: `0 0 10px ${getStatus(currentAngle).color}30` 
+                          }}
+                        >
+                          {getStatus(currentAngle).label}
+                        </div>
+                      </div>
+
+                      {/* Desktop Controls overlay */}
+                      <div className="absolute bottom-8 left-0 right-0 flex justify-center gap-4 px-8">
+                         <button
+                          onClick={toggleSession}
+                          className={`px-8 py-3 rounded-full font-bold text-lg flex items-center gap-3 transition-all hover:scale-105 active:scale-95 shadow-xl ${
+                            isActive 
+                            ? `bg-red-500/10 text-[${COLORS.moveRed}] border border-red-500/50 hover:bg-red-500/20` 
+                            : 'bg-white text-black hover:bg-gray-200'
+                          }`}
+                        >
+                          {isActive ? <><Pause fill="currentColor" size={20} /> End Session</> : <><Play fill="currentColor" size={20} /> Start Tracking</>}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Live Graph - Wide */}
+                    <div className="p-6 rounded-3xl bg-neutral-900/50 border border-white/10 h-64 md:h-80">
+                      <div className="flex items-center justify-between mb-6">
+                        <h3 className="font-semibold text-gray-400 flex items-center gap-2">
+                          <Activity size={18} /> Live Posture
+                        </h3>
+                        <AnimatePresence>
+                          {isActive && <motion.span 
+                            key="live"
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            className="text-xs text-green-400 animate-pulse"
+                          >● Live</motion.span>}
+                        </AnimatePresence>
+                      </div>
+                      <div className="h-full w-full pb-6">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <AreaChart data={liveData}>
+                            <defs>
+                              {/* Using COLORS.exerciseGreen for the graph fill */}
+                              <linearGradient id="grad" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="0%" stopColor={COLORS.exerciseGreen} stopOpacity={0.4}/>
+                                <stop offset="100%" stopColor={COLORS.exerciseGreen} stopOpacity={0}/>
+                              </linearGradient>
+                            </defs>
+                            <Area 
+                              type="monotone" 
+                              dataKey="angle" 
+                              stroke={COLORS.exerciseGreen} 
+                              fill="url(#grad)" 
+                              strokeWidth={3}
+                              isAnimationActive={false}
+                            />
+                            <YAxis hide domain={[-45, 45]} />
+                          </AreaChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Right Col: Stats */}
+                  <div className="space-y-4 lg:space-y-6">
+                    <StatBox 
+                      label="Current Streak" 
+                      value={`${streak}s`} 
+                      icon={<Zap size={24} />} 
+                      color={COLORS.warningYellow} 
+                      trend="+12%"
+                      large
+                    />
+                    <StatBox 
+                      label="Session Score" 
+                      value={`${sessionStats.score}%`} 
+                      icon={<Award size={24} />} 
+                      color={COLORS.exerciseGreen} 
+                      large
+                    />
+                    <StatBox 
+                      label="Elapsed Time" 
+                      value={formatTime(elapsedTime)} 
+                      icon={<Activity size={24} />} 
+                      color={COLORS.standBlue} 
+                      large
+                    />
+                    
+                    <div className="bg-neutral-900/50 border border-white/10 p-6 rounded-3xl mt-auto">
+                      <h4 className="text-sm font-medium text-gray-400 mb-2">Pro Tip</h4>
+                      <p className="text-sm text-gray-300 leading-relaxed">
+                        Maintaining a 0-$5^\circ$ angle for just 10 minutes a day can improve long-term spinal health by 40%.
+                      </p>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+
+              {/* --- HISTORY --- */}
+              {activeTab === 'history' && (
+                <motion.div 
+                  key="history"
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -20 }}
+                  className="space-y-8"
+                >
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h2 className="text-3xl font-bold">{getMonthName(currentDate)}</h2>
+                      <p className="text-gray-400">Your posture consistency over time</p>
+                    </div>
+                    <div className="flex gap-2">
+                      <button 
+                        onClick={() => setCurrentDate(new Date(currentDate.setMonth(currentDate.getMonth() - 1)))}
+                        className="p-3 rounded-full bg-neutral-800 hover:bg-neutral-700 transition-colors"
+                      >
+                        <ChevronLeft size={20}/>
+                      </button>
+                      <button 
+                        onClick={() => setCurrentDate(new Date(currentDate.setMonth(currentDate.getMonth() + 1)))}
+                        className="p-3 rounded-full bg-neutral-800 hover:bg-neutral-700 transition-colors"
+                      >
+                        <ChevronRight size={20}/>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Monthly Grid Calendar */}
+                  <div className="bg-neutral-900/50 p-6 md:p-8 rounded-[2rem] border border-white/5 shadow-2xl">
+                    {/* Weekday Headers */}
+                    <div className="grid grid-cols-7 mb-4">
+                      {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map((d,i) => (
+                        <div key={i} className="text-center text-sm font-semibold text-gray-500 uppercase tracking-wider py-2">
+                          {d}
+                        </div>
+                      ))}
+                    </div>
+                    
+                    {/* Calendar Days */}
+                    <div className="grid grid-cols-7 gap-2 md:gap-4">
+                      {getCalendarDays().map((day, i) => {
+                        if (!day) return <div key={`empty-${i}`} className="aspect-square" />;
+                        
+                        return (
+                          <motion.div
+                            key={i}
+                            whileHover={{ scale: 1.05, y: -2 }}
+                            className="aspect-square rounded-xl md:rounded-2xl relative group cursor-pointer border border-white/5 transition-colors"
+                            style={{
+                              backgroundColor: `${getScoreColor(day.score)}15`, // 15% opacity background
+                            }}
+                          >
+                            <div className="absolute top-2 left-3 text-xs md:text-sm font-medium opacity-50">{day.dayNum}</div>
+                            
+                            {/* Ring or Circle Indicator */}
+                            <div className="absolute inset-0 flex items-center justify-center">
+                              <div 
+                                className="w-8 h-8 md:w-12 md:h-12 rounded-full flex items-center justify-center text-xs md:text-sm font-bold shadow-lg"
+                                style={{
+                                  background: `conic-gradient(${getScoreColor(day.score)} ${day.score}%, transparent ${day.score}%)`,
+                                  boxShadow: `0 0 20px ${getScoreColor(day.score)}30`
+                                }}
+                              >
+                                <div className="w-[85%] h-[85%] bg-neutral-900 rounded-full flex items-center justify-center">
+                                  <span style={{ color: getScoreColor(day.score) }}>{day.score}</span>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Tooltip */}
+                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 bg-gray-800/90 backdrop-blur text-white text-xs py-2 px-3 rounded-lg opacity-0 group-hover:opacity-100 whitespace-nowrap z-20 pointer-events-none shadow-xl transition-opacity">
+                              <p className="font-bold">{day.status}</p>
+                              <p className="opacity-80">{day.duration} mins tracked</p>
+                            </div>
+                          </motion.div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Stats Row */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                     <div className="bg-neutral-900/50 p-6 rounded-3xl border border-white/5">
+                        <h3 className="font-semibold text-gray-300 mb-4 flex items-center gap-2">
+                          <TrendingUp className="text-green-500" size={18}/> Weekly Trend
+                        </h3>
+                        <div className="h-40">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <BarChart data={historyData.slice(0, 7)}>
+                              <Bar dataKey="score" radius={[4, 4, 0, 0]}>
+                                {historyData.slice(0, 7).map((entry, index) => (
+                                  <Cell key={`cell-${index}`} fill={getScoreColor(entry.score)} />
+                                ))}
+                              </Bar>
+                              <Tooltip cursor={{fill: 'transparent'}} contentStyle={{backgroundColor: '#333', borderRadius: '8px', border: 'none'}} />
+                            </BarChart>
+                          </ResponsiveContainer>
+                        </div>
+                     </div>
+                     <div className="grid grid-cols-2 gap-4">
+                        <div className="bg-neutral-900/50 p-6 rounded-3xl border border-white/5 flex flex-col justify-center">
+                           <span className="text-gray-400 text-sm">Monthly Average</span>
+                           <span className="text-3xl font-bold text-white mt-1">84%</span>
+                           <span className="text-xs text-green-400 mt-2">+2% from last month</span>
+                        </div>
+                        <div className="bg-neutral-900/50 p-6 rounded-3xl border border-white/5 flex flex-col justify-center">
+                           <span className="text-gray-400 text-sm">Total Hours</span>
+                           <span className="text-3xl font-bold text-white mt-1">42h</span>
+                           <span className="text-xs text-gray-500 mt-2">Active Tracking</span>
+                        </div>
+                     </div>
+                  </div>
+                </motion.div>
+              )}
+
+              {/* --- SETTINGS --- */}
+              {activeTab === 'settings' && (
+                <motion.div 
+                  key="settings"
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.95 }}
+                  className="max-w-2xl mx-auto space-y-8"
+                >
+                  <div className="mb-8">
+                    <h2 className="text-3xl font-bold">Settings</h2>
+                    <p className="text-gray-400">Customize your posture preferences</p>
+                  </div>
+
+                  {/* Connection Settings */}
+                  <div className="bg-neutral-900/50 p-8 rounded-[2rem] border border-white/5 space-y-6">
+                    <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+                      <Wifi size={20} className="text-blue-500" /> Device Connection
+                    </h3>
+                    <div>
+                      <label className="text-xs text-gray-500 uppercase font-bold tracking-wider ml-1">ESP32 IP Address</label>
+                      <div className="flex gap-3 mt-2">
+                        <input 
+                          type="text" 
+                          value={espIP}
+                          onChange={(e) => setEspIP(e.target.value)}
+                          className="flex-1 bg-black/50 border border-white/10 rounded-xl px-5 py-4 text-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-all font-mono"
+                          placeholder="192.168.1.100"
+                        />
+                        <button 
+                          onClick={connectToESP}
+                          className="bg-blue-600 px-8 rounded-xl font-bold hover:bg-blue-500 transition-colors shadow-lg shadow-blue-900/20"
+                        >
+                          Connect
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Threshold Sliders */}
+                  <div className="bg-neutral-900/50 p-8 rounded-[2rem] border border-white/5 space-y-8">
+                    <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+                      <Target size={20} className="text-pink-500" /> Posture Zones
+                    </h3>
+                    
+                    <ThresholdSlider 
+                      label="Excellent Zone (Strict)"
+                      description="Green Zone - Perfect posture range"
+                      value={settings.excellentThreshold}
+                      color={COLORS.exerciseGreen}
+                      max={15}
+                      onChange={(v) => setSettings(s => ({...s, excellentThreshold: v}))}
+                    />
+                     <ThresholdSlider 
+                      label="Good Zone"
+                      description="Blue Zone - Acceptable range"
+                      value={settings.goodThreshold}
+                      color={COLORS.standBlue}
+                      max={30}
+                      onChange={(v) => setSettings(s => ({...s, goodThreshold: v}))}
+                    />
+                     <ThresholdSlider 
+                      label="Fair Zone (Warning)"
+                      description="Yellow Zone - Getting slouchy"
+                      value={settings.fairThreshold}
+                      color={COLORS.warningYellow}
+                      max={45}
+                      onChange={(v) => setSettings(s => ({...s, fairThreshold: v}))}
+                    />
+
+                    <div className="pt-6 border-t border-white/10">
+                      <div className="flex justify-between items-center mb-4">
+                        <div>
+                          <span className="text-base font-medium block">Sensitivity</span>
+                          <span className="text-xs text-gray-500">Adjust how quickly the angle updates</span>
+                        </div>
+                        <span className="text-xs px-2 py-1 rounded bg-white/10">{settings.smoothingAlpha}</span>
+                      </div>
+                      <input 
+                        type="range" 
+                        min="0.01" 
+                        max="0.5" 
+                        step="0.01"
+                        value={settings.smoothingAlpha}
+                        onChange={(e) => setSettings(s => ({...s, smoothingAlpha: parseFloat(e.target.value)}))}
+                        className="w-full h-2 bg-gray-800 rounded-lg appearance-none cursor-pointer accent-white"
+                      />
+                      <div className="flex justify-between text-[10px] text-gray-500 mt-2 font-medium uppercase tracking-wider">
+                        <span>Very Smooth</span>
+                        <span>Responsive</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <button 
+                    onClick={() => {
+                       setSettings(DEFAULT_SETTINGS);
+                       showNotification('success', 'Settings Reset');
+                    }}
+                    className="w-full py-4 rounded-xl border border-white/10 text-gray-400 hover:text-white hover:bg-white/5 transition-colors flex items-center justify-center gap-2 font-medium"
+                  >
+                    <RotateCcw size={18} /> Reset to Defaults
+                  </button>
+                </motion.div>
+              )}
+
+            </AnimatePresence>
+          </div>
+        </div>
+
+        {/* --- BOTTOM NAV (Mobile Only) --- */}
+        <div className="md:hidden p-4 bg-neutral-900/90 backdrop-blur-xl border-t border-white/10">
+          <div className="flex justify-around items-center">
+            <NavIcon 
+              icon={<LayoutDashboard />} 
+              label="Track" 
+              active={activeTab === 'dashboard'} 
+              onClick={() => setActiveTab('dashboard')} 
+            />
+            <NavIcon 
+              icon={<CalendarIcon />} 
+              label="History" 
+              active={activeTab === 'history'} 
+              onClick={() => setActiveTab('history')} 
+            />
+             <NavIcon 
+              icon={<SettingsIcon />} 
+              label="Settings" 
+              active={activeTab === 'settings'} 
+              onClick={() => setActiveTab('settings')} 
+            />
+          </div>
+        </div>
+
+      </main>
+
+      {/* Notifications Overlay */}
       <AnimatePresence>
         {notification && (
           <motion.div
-            initial={{ y: -100, opacity: 0, scale: 0.8 }}
-            animate={{ y: 0, opacity: 1, scale: 1 }}
-            exit={{ y: -100, opacity: 0, scale: 0.8 }}
-            transition={{ type: 'spring', stiffness: 200, damping: 20 }}
-            className="fixed top-8 left-1/2 transform -translate-x-1/2 z-50"
+            initial={{ y: -50, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: -50, opacity: 0 }}
+            className={`fixed top-6 left-1/2 -translate-x-1/2 px-6 py-3 rounded-full shadow-2xl backdrop-blur-xl flex items-center gap-3 z-50 border border-white/10 ${
+              notification.type === 'error' 
+                ? 'bg-red-500/20 text-red-100' 
+                : 'bg-green-500/20 text-green-100' // Consistent notification colors
+            }`}
           >
-            <div
-              className="px-8 py-4 rounded-2xl shadow-2xl flex items-center gap-4 backdrop-blur-xl"
-              style={{
-                background: notification.type === 'achievement'
-                  ? `linear-gradient(135deg, ${COLORS.exerciseGreen}dd 0%, ${COLORS.standBlue}dd 100%)`
-                  : notification.type === 'warning'
-                  ? `${COLORS.moveRed}dd`
-                  : notification.type === 'error'
-                  ? `${COLORS.moveRed}dd`
-                  : `${COLORS.exerciseGreen}dd`,
-                color: 'white',
-              }}
-            >
-              {notification.type === 'achievement' && <Award size={24} />}
-              {notification.type === 'warning' && <AlertCircle size={24} />}
-              {notification.type === 'success' && <CheckCircle2 size={24} />}
-              <span className="font-bold text-lg">{notification.message}</span>
-            </div>
+            {notification.type === 'error' ? <AlertCircle size={18} /> : <CheckCircle2 size={18} />}
+            <span className="font-semibold text-sm">{notification.message}</span>
           </motion.div>
         )}
       </AnimatePresence>
@@ -709,101 +716,131 @@ export default function App() {
   );
 }
 
-// Apple-style Ring Component
-function AppleRing({ angle }) {
-  const progress = Math.max(0, 100 - Math.abs(angle) * 2);
-  const status = getStatus(angle);
+// --- SUB COMPONENTS ---
+
+const SidebarLink = ({ icon, label, active, onClick }) => (
+  <button 
+    onClick={onClick}
+    className={`w-full flex items-center gap-4 px-4 py-3 rounded-xl transition-all duration-200 group ${
+      active 
+      ? 'bg-white/10 text-white shadow-lg' 
+      : 'text-gray-400 hover:text-white hover:bg-white/5'
+    }`}
+  >
+    {React.cloneElement(icon, { 
+      size: 20, 
+      className: active ? 'text-pink-500' : 'text-gray-400 group-hover:text-white' 
+    })}
+    <span className="font-medium text-sm">{label}</span>
+    {active && <div className="ml-auto w-1.5 h-1.5 rounded-full bg-pink-500" />}
+  </button>
+);
+
+const NavIcon = ({ icon, label, active, onClick }) => (
+  <button 
+    onClick={onClick}
+    className={`flex flex-col items-center gap-1 transition-all duration-300 ${active ? 'text-pink-500 scale-110' : 'text-gray-500 hover:text-gray-300'}`}
+  >
+    {React.cloneElement(icon, { size: active ? 24 : 22, strokeWidth: active ? 2.5 : 2 })}
+    <span className="text-[10px] font-medium">{label}</span>
+  </button>
+);
+
+const StatBox = ({ label, value, icon, color, trend, large }) => (
+  <div className={`bg-neutral-900/50 rounded-3xl p-6 flex items-center justify-between border border-white/10 transition-transform hover:scale-[1.02] ${large ? 'py-8' : ''}`}>
+    <div className="flex flex-col justify-center">
+      <span className="text-xs uppercase tracking-wider text-gray-500 font-bold mb-1">{label}</span>
+      <span className="text-3xl font-bold">{value}</span>
+      {trend && <span className="text-xs text-green-400 mt-1 font-medium">{trend} this session</span>}
+    </div>
+    <div 
+      className="w-12 h-12 rounded-full flex items-center justify-center opacity-80"
+      style={{ 
+        backgroundColor: `${color}20`, 
+        color: color,
+        boxShadow: `0 0 10px ${color}30` // Added shadow for vibrancy
+      }}
+    >
+      {icon}
+    </div>
+  </div>
+);
+
+const ThresholdSlider = ({ label, description, value, color, max, onChange }) => (
+  <div>
+    <div className="flex justify-between items-end mb-4">
+      <div>
+        <span className="text-sm font-bold block text-white">{label}</span>
+        <span className="text-xs text-gray-500 mt-0.5">{description}</span>
+      </div>
+      <span className="px-3 py-1 rounded-lg text-sm font-bold bg-white/5 text-white border border-white/10 min-w-[3rem] text-center">
+        {value}°
+      </span>
+    </div>
+    <input 
+      type="range" 
+      min="1" 
+      max={max} 
+      value={value}
+      onChange={(e) => onChange(parseInt(e.target.value))}
+      className="w-full h-2 rounded-lg appearance-none cursor-pointer"
+      style={{
+        // Ensure consistent gradient background for the range input
+        background: `linear-gradient(to right, ${color} 0%, ${color} ${(value/max)*100}%, #333 ${(value/max)*100}%, #333 100%)`
+      }}
+    />
+  </div>
+);
+
+function AppleRing({ angle, status, size }) {
+  const isLarge = size === 'large';
+  const radius = isLarge ? 140 : 120;
+  const stroke = isLarge ? 28 : 24;
+  const width = radius * 2 + stroke * 2;
+  
+  // Adjusted progress calculation to represent 'clearing' the ring more clearly
+  // 0 degrees (perfect) = 100% progress
+  // fairThreshold (25 degrees default) = 0% progress (or worse)
+  // Max angle for 100% fill is excellentThreshold (5 degrees default)
+  const maxAngle = 45; // Max angle to consider for progress calculation
+  const progress = Math.min(100, Math.max(0, 100 - (Math.abs(angle) / maxAngle) * 100)); 
+  
+  const circumference = 2 * Math.PI * radius; 
   
   return (
-    <div className="relative" style={{ width: 180, height: 180 }}>
-      <svg width="180" height="180" viewBox="0 0 180 180">
-        {/* Background ring */}
+    <div className={`relative flex items-center justify-center ${isLarge ? 'w-80 h-80' : 'w-64 h-64'}`}>
+      <svg width={width} height={width} className="transform -rotate-90">
         <circle
-          cx="90"
-          cy="90"
-          r="70"
-          fill="none"
-          stroke={COLORS.mutedText}
-          strokeWidth="12"
-          opacity="0.2"
+          cx="50%" cy="50%" r={radius}
+          fill="none" stroke="#222" strokeWidth={stroke} strokeLinecap="round"
         />
-        
-        {/* Progress ring */}
         <motion.circle
-          cx="90"
-          cy="90"
-          r="70"
-          fill="none"
-          stroke={status.color}
-          strokeWidth="12"
-          strokeLinecap="round"
-          strokeDasharray={`${2 * Math.PI * 70}`}
-          strokeDashoffset={`${2 * Math.PI * 70 * (1 - progress / 100)}`}
-          transform="rotate(-90 90 90)"
-          initial={{ strokeDashoffset: 2 * Math.PI * 70 }}
-          animate={{ 
-            strokeDashoffset: 2 * Math.PI * 70 * (1 - progress / 100),
-          }}
-          transition={{ type: 'spring', stiffness: 80, damping: 15 }}
-          style={{
-            filter: `drop-shadow(0 0 10px ${status.color}80)`,
+          cx="50%" cy="50%" r={radius}
+          fill="none" stroke={status.color} strokeWidth={stroke} strokeLinecap="round"
+          strokeDasharray={circumference}
+          initial={{ strokeDashoffset: circumference }}
+          animate={{ strokeDashoffset: circumference - (progress / 100) * circumference }}
+          transition={{ type: "spring", stiffness: 60, damping: 20 }}
+          style={{ 
+            filter: `drop-shadow(0 0 15px ${status.color}60)`,
+            // Applying a subtle shadow to the stroke
+            stroke: status.color 
           }}
         />
       </svg>
-      
-      {/* Center icon */}
-      <div className="absolute inset-0 flex items-center justify-center">
-        <motion.div
-          animate={{ rotate: angle }}
-          transition={{ type: 'spring', stiffness: 100, damping: 15 }}
-        >
-          <Activity size={40} style={{ color: status.color }} />
-        </motion.div>
-      </div>
     </div>
   );
 }
 
-function StatCard({ icon, label, value, color }) {
-  return (
-    <div 
-      className="rounded-2xl p-4 text-center"
-      style={{ backgroundColor: `${color}15` }}
-    >
-      <div className="flex justify-center mb-2" style={{ color }}>
-        {icon}
-      </div>
-      <div className="text-2xl font-bold mb-1" style={{ color }}>
-        {value}
-      </div>
-      <div className="text-xs" style={{ color: COLORS.mutedText }}>
-        {label}
-      </div>
-    </div>
-  );
-}
+const formatTime = (seconds) => {
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  return `${mins}:${secs.toString().padStart(2, '0')}`;
+};
 
-function QualityCard({ label, count, percent, color }) {
-  return (
-    <div className="text-center">
-      <div className="text-3xl font-bold mb-2" style={{ color }}>
-        {count}
-      </div>
-      <div 
-        className="text-sm font-semibold mb-1"
-        style={{ color: COLORS.lightText }}
-      >
-        {label}
-      </div>
-      <div 
-        className="text-xs px-3 py-1 rounded-full inline-block"
-        style={{ 
-          backgroundColor: `${color}20`,
-          color: color,
-        }}
-      >
-        {percent}%
-      </div>
-    </div>
-  );
-}
+const getScoreColor = (score) => {
+  if (score >= 90) return COLORS.exerciseGreen;
+  if (score >= 75) return COLORS.standBlue;
+  if (score >= 50) return COLORS.warningYellow;
+  return COLORS.moveRed;
+};
