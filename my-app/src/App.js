@@ -12,24 +12,83 @@ import {
 } from 'lucide-react';
 
 // --- CONSTANTS & THEME ---
-const COLORS = {
-  // Posture Status Colors (More Vibrant)
-  moveRed: '#FF453A',        // Vibrant Red for Poor/Move
-  exerciseGreen: '#34C759',  // Vibrant Green for Excellent
-  standBlue: '#00A6FF',      // Vibrant Blue for Good
-  warningYellow: '#FFD60A',   // Vibrant Yellow for Fair
-
-  // UI Colors
-  darkBg: '#0A0A0A',          // Deeper black background
-  cardBg: '#1C1C1E',          // Dark card background
-  cardHighlight: '#2C2C2E',   // Slightly lighter card/hover
-  lightText: '#FFFFFF',
-  mutedText: '#8E8E93',
-  divider: '#38383A',
-
-  // Accent for branding/gradients
-  accentPink: '#FF3B8A',
-  accentBlue: '#007AFF'
+const THEMES = {
+  base: {
+    label: 'Base',
+    moveRed: '#FF453A',
+    exerciseGreen: '#34C759',
+    standBlue: '#00A6FF',
+    warningYellow: '#FFD60A',
+    darkBg: '#0A0A0A',
+    cardBg: '#1C1C1E',
+    lightText: '#FFFFFF',
+    mutedText: '#8E8E93',
+    divider: '#38383A',
+    accentPink: '#FF3B8A',
+    accentBlue: '#007AFF',
+    buttonBg: '#FFFFFF',
+    buttonText: '#000000',
+    panelBg: 'rgba(23, 23, 23, 0.6)', // neutral-900/60
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    inputBg: 'rgba(0, 0, 0, 0.5)',
+  },
+  light: {
+    label: 'Light',
+    moveRed: '#FF3B30',
+    exerciseGreen: '#34C759',
+    standBlue: '#007AFF',
+    warningYellow: '#FFCC00',
+    darkBg: '#F2F2F7', // System Gray 6
+    cardBg: '#FFFFFF',
+    lightText: '#000000',
+    mutedText: '#6C6C70', // System Gray
+    divider: '#C6C6C8',
+    accentPink: '#FF2D55',
+    accentBlue: '#007AFF',
+    buttonBg: '#000000',
+    buttonText: '#FFFFFF',
+    panelBg: 'rgba(255, 255, 255, 0.7)',
+    borderColor: 'rgba(0, 0, 0, 0.1)',
+    inputBg: 'rgba(0, 0, 0, 0.05)',
+  },
+  gamer: {
+    label: 'Gamer',
+    moveRed: '#FF0055',
+    exerciseGreen: '#39FF14',
+    standBlue: '#00FFFF',
+    warningYellow: '#FAFF00',
+    darkBg: '#050005',
+    cardBg: '#150020',
+    lightText: '#E0E0E0',
+    mutedText: '#A060C0',
+    divider: '#401060',
+    accentPink: '#FF00FF',
+    accentBlue: '#7000FF',
+    buttonBg: '#FF00FF',
+    buttonText: '#FFFFFF',
+    panelBg: 'rgba(21, 0, 32, 0.6)',
+    borderColor: 'rgba(64, 16, 96, 0.5)',
+    inputBg: 'rgba(0, 0, 0, 0.5)',
+  },
+  student: {
+    label: 'Student',
+    moveRed: '#EF4444',
+    exerciseGreen: '#A7F3D0',
+    standBlue: '#BFDBFE',
+    warningYellow: '#FDE68A',
+    darkBg: '#1e1e24',
+    cardBg: '#25252d',
+    lightText: '#E2E8F0',
+    mutedText: '#94A3B8',
+    divider: '#334155',
+    accentPink: '#C4B5FD',
+    accentBlue: '#93C5FD',
+    buttonBg: '#C4B5FD',
+    buttonText: '#1e1e24',
+    panelBg: 'rgba(30, 41, 59, 0.6)',
+    borderColor: 'rgba(51, 65, 85, 0.5)',
+    inputBg: 'rgba(0, 0, 0, 0.3)',
+  }
 };
 
 const DEFAULT_SETTINGS = {
@@ -76,6 +135,8 @@ const generateMockMonthData = (year, month) => {
 export default function App() {
   // --- STATE ---
   const [activeTab, setActiveTab] = useState('dashboard'); // dashboard, history, settings
+  const [currentTheme, setCurrentTheme] = useState(() => localStorage.getItem('appTheme') || 'base');
+  const colors = useMemo(() => THEMES[currentTheme], [currentTheme]);
 
   // Connection
   // Connection
@@ -116,16 +177,24 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('postureSettings', JSON.stringify(settings));
     localStorage.setItem('espIP', espIP);
-  }, [settings, espIP]);
+    localStorage.setItem('appTheme', currentTheme);
+  }, [settings, espIP, currentTheme]);
 
   // --- LOGIC ---
 
   const getStatus = (angle) => {
     const absAngle = Math.abs(angle);
-    if (absAngle <= settings.excellentThreshold) return { label: 'Excellent', color: COLORS.exerciseGreen, score: 100 };
-    if (absAngle <= settings.goodThreshold) return { label: 'Good', color: COLORS.standBlue, score: 80 };
-    if (absAngle <= settings.fairThreshold) return { label: 'Fair', color: COLORS.warningYellow, score: 50 };
-    return { label: 'Poor', color: COLORS.moveRed, score: 20 };
+    if (absAngle <= settings.excellentThreshold) return { label: 'Excellent', color: colors.exerciseGreen, score: 100 };
+    if (absAngle <= settings.goodThreshold) return { label: 'Good', color: colors.standBlue, score: 80 };
+    if (absAngle <= settings.fairThreshold) return { label: 'Fair', color: colors.warningYellow, score: 50 };
+    return { label: 'Poor', color: colors.moveRed, score: 20 };
+  };
+
+  const getScoreColor = (score) => {
+    if (score >= 90) return colors.exerciseGreen;
+    if (score >= 75) return colors.standBlue;
+    if (score >= 50) return colors.warningYellow;
+    return colors.moveRed;
   };
 
   const connectToESP = async () => {
@@ -268,16 +337,19 @@ export default function App() {
 
   return (
     // Use inline style to force the dark background color consistently
-    <div className="flex h-screen text-white font-sans overflow-hidden selection:bg-pink-500 selection:text-white" style={{ backgroundColor: COLORS.darkBg }}>
+    <div className="flex h-[100dvh] font-sans overflow-hidden selection:bg-pink-500 selection:text-white transition-colors duration-500" style={{ backgroundColor: colors.darkBg, color: colors.lightText }}>
 
       {/* --- SIDEBAR (Desktop) --- */}
-      <aside className="hidden md:flex w-72 flex-col border-r border-white/10 bg-neutral-900/50 backdrop-blur-xl p-6">
+      <aside
+        className="hidden md:flex w-72 flex-col border-r backdrop-blur-xl p-6 transition-colors duration-300"
+        style={{ backgroundColor: colors.panelBg, borderColor: colors.borderColor }}
+      >
         <div className="flex items-center gap-3 mb-10 px-2">
-          <Activity className="text-pink-500" size={32} />
+          <Activity style={{ color: colors.accentPink }} size={32} />
           <div>
             <div>
-              <h1 className="text-2xl font-bold tracking-tight">Spine<span className="text-pink-500">Up</span></h1>
-              <span className="text-xs text-gray-500 font-medium tracking-wider uppercase">Ultimate</span>
+              <h1 className="text-2xl font-bold tracking-tight">Spine<span style={{ color: colors.accentPink }}>Up</span></h1>
+              <span className="text-xs font-medium tracking-wider uppercase" style={{ color: colors.mutedText }}>Ultimate</span>
             </div>
           </div>
         </div>
@@ -288,27 +360,30 @@ export default function App() {
             label="Dashboard"
             active={activeTab === 'dashboard'}
             onClick={() => setActiveTab('dashboard')}
+            colors={colors}
           />
           <SidebarLink
             icon={<CalendarIcon />}
             label="History"
             active={activeTab === 'history'}
             onClick={() => setActiveTab('history')}
+            colors={colors}
           />
           <SidebarLink
             icon={<SettingsIcon />}
             label="Settings"
             active={activeTab === 'settings'}
             onClick={() => setActiveTab('settings')}
+            colors={colors}
           />
         </nav>
 
-        <div className="mt-auto pt-6 border-t border-white/10">
-          <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-white/5">
+        <div className="mt-auto pt-6 border-t" style={{ borderColor: colors.borderColor }}>
+          <div className="flex items-center justify-between px-3 py-2 rounded-xl" style={{ backgroundColor: colors.inputBg }}>
             <div className="flex items-center gap-3">
               {/* Use the new, brighter green/red colors */}
               <div className={`w-2.5 h-2.5 rounded-full ${isConnected ? 'bg-green-500 shadow-[0_0_8px_rgba(52,199,89,0.7)]' : 'bg-red-500 shadow-[0_0_8px_rgba(255,69,58,0.7)]'}`} />
-              <span className="text-sm font-medium text-gray-300">{isConnected ? 'Online' : 'Offline'}</span>
+              <span className="text-sm font-medium" style={{ color: colors.mutedText }}>{isConnected ? 'Online' : 'Offline'}</span>
             </div>
             {isConnected && <Wifi size={16} className="text-green-500" />}
           </div>
@@ -319,9 +394,9 @@ export default function App() {
       <main className="flex-1 flex flex-col h-full overflow-hidden relative">
 
         {/* Mobile Header */}
-        <div className="md:hidden flex items-center justify-between p-4 border-b border-white/10 bg-neutral-900/90 backdrop-blur-md z-20">
+        <div className="md:hidden flex items-center justify-between p-4 border-b backdrop-blur-md z-50 relative" style={{ backgroundColor: colors.panelBg, borderColor: colors.borderColor }}>
           <div className="flex items-center gap-2">
-            <Activity className="text-pink-500" size={24} />
+            <Activity style={{ color: colors.accentPink }} size={24} />
             <span className="font-bold text-lg">SpineUp</span>
           </div>
           {/* Use the new, brighter green/red colors */}
@@ -343,9 +418,9 @@ export default function App() {
                 >
                   {/* Left Col: Main Gauge */}
                   <div className="lg:col-span-2 space-y-6">
-                    <div className="relative bg-neutral-900/50 border border-white/10 rounded-[2.5rem] p-8 md:p-12 flex flex-col items-center justify-center overflow-hidden">
+                    <div className="relative border rounded-[2.5rem] p-8 md:p-12 flex flex-col items-center justify-center overflow-hidden transition-colors" style={{ backgroundColor: colors.panelBg, borderColor: colors.borderColor }}>
                       {/* Using the new accent colors for a better gradient effect */}
-                      <div className="absolute top-0 left-0 right-0 h-1" style={{ background: `linear-gradient(to right, ${COLORS.accentPink}, #5856D6, ${COLORS.accentBlue})`, opacity: 0.5 }} />
+                      <div className="absolute top-0 left-0 right-0 h-1" style={{ background: `linear-gradient(to right, ${colors.accentPink}, #5856D6, ${colors.accentBlue})`, opacity: 0.5 }} />
 
                       <AppleRing angle={currentAngle} status={getStatus(currentAngle)} size="large" />
 
@@ -371,9 +446,10 @@ export default function App() {
                         <button
                           onClick={toggleSession}
                           className={`px-8 py-3 rounded-full font-bold text-lg flex items-center gap-3 transition-all hover:scale-105 active:scale-95 shadow-xl ${isActive
-                            ? `bg-red-500/10 text-[${COLORS.moveRed}] border border-red-500/50 hover:bg-red-500/20`
-                            : 'bg-white text-black hover:bg-gray-200'
+                            ? `bg-red-500/10 text-[${colors.moveRed}] border border-red-500/50 hover:bg-red-500/20`
+                            : 'hover:brightness-90' // Removed fixed colors
                             }`}
+                          style={!isActive ? { backgroundColor: colors.buttonBg, color: colors.buttonText } : {}}
                         >
                           {isActive ? <><Pause fill="currentColor" size={20} /> End Session</> : <><Play fill="currentColor" size={20} /> Start Tracking</>}
                         </button>
@@ -381,9 +457,9 @@ export default function App() {
                     </div>
 
                     {/* Live Graph - Wide */}
-                    <div className="p-6 rounded-3xl bg-neutral-900/50 border border-white/10 h-64 md:h-80">
+                    <div className="p-6 rounded-3xl border h-64 md:h-80 transition-colors" style={{ backgroundColor: colors.panelBg, borderColor: colors.borderColor }}>
                       <div className="flex items-center justify-between mb-6">
-                        <h3 className="font-semibold text-gray-400 flex items-center gap-2">
+                        <h3 className="font-semibold flex items-center gap-2" style={{ color: colors.mutedText }}>
                           <Activity size={18} /> Live Posture
                         </h3>
                         <AnimatePresence>
@@ -402,14 +478,14 @@ export default function App() {
                             <defs>
                               {/* Using COLORS.exerciseGreen for the graph fill */}
                               <linearGradient id="grad" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="0%" stopColor={COLORS.exerciseGreen} stopOpacity={0.4} />
-                                <stop offset="100%" stopColor={COLORS.exerciseGreen} stopOpacity={0} />
+                                <stop offset="0%" stopColor={colors.exerciseGreen} stopOpacity={0.4} />
+                                <stop offset="100%" stopColor={colors.exerciseGreen} stopOpacity={0} />
                               </linearGradient>
                             </defs>
                             <Area
                               type="monotone"
                               dataKey="angle"
-                              stroke={COLORS.exerciseGreen}
+                              stroke={colors.exerciseGreen}
                               fill="url(#grad)"
                               strokeWidth={3}
                               isAnimationActive={false}
@@ -427,28 +503,31 @@ export default function App() {
                       label="Current Streak"
                       value={`${streak}s`}
                       icon={<Zap size={24} />}
-                      color={COLORS.warningYellow}
+                      color={colors.warningYellow}
                       trend="+12%"
+                      colors={colors}
                       large
                     />
                     <StatBox
                       label="Session Score"
                       value={`${sessionStats.score}%`}
                       icon={<Award size={24} />}
-                      color={COLORS.exerciseGreen}
+                      color={colors.exerciseGreen}
+                      colors={colors}
                       large
                     />
                     <StatBox
                       label="Elapsed Time"
                       value={formatTime(elapsedTime)}
                       icon={<Activity size={24} />}
-                      color={COLORS.standBlue}
+                      color={colors.standBlue}
+                      colors={colors}
                       large
                     />
 
-                    <div className="bg-neutral-900/50 border border-white/10 p-6 rounded-3xl mt-auto">
-                      <h4 className="text-sm font-medium text-gray-400 mb-2">Pro Tip</h4>
-                      <p className="text-sm text-gray-300 leading-relaxed">
+                    <div className="border p-6 rounded-3xl mt-auto transition-colors" style={{ backgroundColor: colors.panelBg, borderColor: colors.borderColor }}>
+                      <h4 className="text-sm font-medium mb-2" style={{ color: colors.mutedText }}>Pro Tip</h4>
+                      <p className="text-sm leading-relaxed" style={{ color: colors.lightText }}>
                         Maintaining a 0-5° angle for just 10 minutes a day can improve long-term spinal health by 40%.
                       </p>
                     </div>
@@ -468,7 +547,7 @@ export default function App() {
                   <div className="flex items-center justify-between">
                     <div>
                       <h2 className="text-3xl font-bold">{getMonthName(currentDate)}</h2>
-                      <p className="text-gray-400">Your posture consistency over time</p>
+                      <p style={{ color: colors.mutedText }}>Your posture consistency over time</p>
                     </div>
                     <div className="flex gap-2">
                       <button
@@ -487,11 +566,11 @@ export default function App() {
                   </div>
 
                   {/* Monthly Grid Calendar */}
-                  <div className="bg-neutral-900/50 p-6 md:p-8 rounded-[2rem] border border-white/5 shadow-2xl">
+                  <div className="p-6 md:p-8 rounded-[2rem] border shadow-sm transition-colors" style={{ backgroundColor: colors.panelBg, borderColor: colors.borderColor }}>
                     {/* Weekday Headers */}
                     <div className="grid grid-cols-7 mb-4">
                       {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d, i) => (
-                        <div key={i} className="text-center text-sm font-semibold text-gray-500 uppercase tracking-wider py-2">
+                        <div key={i} className="text-center text-sm font-semibold uppercase tracking-wider py-2" style={{ color: colors.mutedText }}>
                           {d}
                         </div>
                       ))}
@@ -506,9 +585,10 @@ export default function App() {
                           <motion.div
                             key={i}
                             whileHover={{ scale: 1.05, y: -2 }}
-                            className="aspect-square rounded-xl md:rounded-2xl relative group cursor-pointer border border-white/5 transition-colors"
+                            className="aspect-square rounded-xl md:rounded-2xl relative group cursor-pointer border transition-colors"
                             style={{
                               backgroundColor: `${getScoreColor(day.score)}15`, // 15% opacity background
+                              borderColor: colors.borderColor
                             }}
                           >
                             <div className="absolute top-2 left-3 text-xs md:text-sm font-medium opacity-50">{day.dayNum}</div>
@@ -522,7 +602,7 @@ export default function App() {
                                   boxShadow: `0 0 20px ${getScoreColor(day.score)}30`
                                 }}
                               >
-                                <div className="w-[85%] h-[85%] bg-neutral-900 rounded-full flex items-center justify-center">
+                                <div className="w-[85%] h-[85%] rounded-full flex items-center justify-center" style={{ backgroundColor: colors.cardBg }}>
                                   <span style={{ color: getScoreColor(day.score) }}>{day.score}</span>
                                 </div>
                               </div>
@@ -541,8 +621,8 @@ export default function App() {
 
                   {/* Stats Row */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div className="bg-neutral-900/50 p-6 rounded-3xl border border-white/5">
-                      <h3 className="font-semibold text-gray-300 mb-4 flex items-center gap-2">
+                    <div className="p-6 rounded-3xl border transition-colors" style={{ backgroundColor: colors.panelBg, borderColor: colors.borderColor }}>
+                      <h3 className="font-semibold mb-4 flex items-center gap-2" style={{ color: colors.mutedText }}>
                         <TrendingUp className="text-green-500" size={18} /> Weekly Trend
                       </h3>
                       <div className="h-40">
@@ -559,15 +639,15 @@ export default function App() {
                       </div>
                     </div>
                     <div className="grid grid-cols-2 gap-4">
-                      <div className="bg-neutral-900/50 p-6 rounded-3xl border border-white/5 flex flex-col justify-center">
-                        <span className="text-gray-400 text-sm">Monthly Average</span>
-                        <span className="text-3xl font-bold text-white mt-1">84%</span>
+                      <div className="p-6 rounded-3xl border flex flex-col justify-center transition-colors" style={{ backgroundColor: colors.panelBg, borderColor: colors.borderColor }}>
+                        <span className="text-sm" style={{ color: colors.mutedText }}>Monthly Average</span>
+                        <span className="text-3xl font-bold mt-1" style={{ color: colors.lightText }}>84%</span>
                         <span className="text-xs text-green-400 mt-2">+2% from last month</span>
                       </div>
-                      <div className="bg-neutral-900/50 p-6 rounded-3xl border border-white/5 flex flex-col justify-center">
-                        <span className="text-gray-400 text-sm">Total Hours</span>
-                        <span className="text-3xl font-bold text-white mt-1">42h</span>
-                        <span className="text-xs text-gray-500 mt-2">Active Tracking</span>
+                      <div className="p-6 rounded-3xl border flex flex-col justify-center transition-colors" style={{ backgroundColor: colors.panelBg, borderColor: colors.borderColor }}>
+                        <span className="text-sm" style={{ color: colors.mutedText }}>Total Hours</span>
+                        <span className="text-3xl font-bold mt-1" style={{ color: colors.lightText }}>42h</span>
+                        <span className="text-xs mt-2" style={{ color: colors.mutedText }}>Active Tracking</span>
                       </div>
                     </div>
                   </div>
@@ -585,22 +665,27 @@ export default function App() {
                 >
                   <div className="mb-8">
                     <h2 className="text-3xl font-bold">Settings</h2>
-                    <p className="text-gray-400">Customize your posture preferences</p>
+                    <p style={{ color: colors.mutedText }}>Customize your posture preferences</p>
                   </div>
 
                   {/* Connection Settings */}
-                  <div className="bg-neutral-900/50 p-8 rounded-[2rem] border border-white/5 space-y-6">
+                  <div className="p-8 rounded-[2rem] border space-y-6 transition-colors" style={{ backgroundColor: colors.panelBg, borderColor: colors.borderColor }}>
                     <h3 className="text-lg font-semibold text-white flex items-center gap-2">
                       <Wifi size={20} className="text-blue-500" /> Device Connection
                     </h3>
                     <div>
-                      <label className="text-xs text-gray-500 uppercase font-bold tracking-wider ml-1">ESP32 IP Address</label>
+                      <label className="text-xs uppercase font-bold tracking-wider ml-1" style={{ color: colors.mutedText }}>ESP32 IP Address</label>
                       <div className="flex gap-3 mt-2">
                         <input
                           type="text"
                           value={espIP}
                           onChange={(e) => setEspIP(e.target.value)}
-                          className="flex-1 bg-black/50 border border-white/10 rounded-xl px-5 py-4 text-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-all font-mono"
+                          className="flex-1 border rounded-xl px-5 py-4 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-all font-mono"
+                          style={{
+                            backgroundColor: colors.inputBg,
+                            borderColor: colors.borderColor,
+                            color: colors.lightText
+                          }}
                           placeholder="192.168.0.159"
                         />
                         <button
@@ -613,44 +698,71 @@ export default function App() {
                     </div>
                   </div>
 
+                  {/* Theme Selector */}
+                  <div className="p-8 rounded-[2rem] border space-y-6 transition-colors" style={{ backgroundColor: colors.panelBg, borderColor: colors.borderColor }}>
+                    <h3 className="text-lg font-semibold flex items-center gap-2" style={{ color: colors.lightText }}>
+                      <Monitor size={20} className="text-purple-500" /> Appearance
+                    </h3>
+                    <div className="grid grid-cols-3 gap-4">
+                      {Object.entries(THEMES).map(([key, theme]) => (
+                        <button
+                          key={key}
+                          onClick={() => setCurrentTheme(key)}
+                          className={`p-4 rounded-xl border transition-all ${currentTheme === key ? 'bg-white/10' : 'border-white/10 hover:bg-white/5'}`}
+                          style={currentTheme === key ? { borderColor: colors.accentPink } : {}}
+                        >
+                          <div className="w-full h-8 rounded-lg mb-3 flex overflow-hidden">
+                            <div className="flex-1" style={{ background: theme.darkBg }} />
+                            <div className="flex-1" style={{ background: theme.accentPink }} />
+                            <div className="flex-1" style={{ background: theme.exerciseGreen }} />
+                          </div>
+                          <span className="text-sm font-medium block text-center">{theme.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
                   {/* Threshold Sliders */}
-                  <div className="bg-neutral-900/50 p-8 rounded-[2rem] border border-white/5 space-y-8">
-                    <h3 className="text-lg font-semibold text-white flex items-center gap-2">
-                      <Target size={20} className="text-pink-500" /> Posture Zones
+                  <div className="p-8 rounded-[2rem] border space-y-8 transition-colors" style={{ backgroundColor: colors.panelBg, borderColor: colors.borderColor }}>
+                    <h3 className="text-lg font-semibold flex items-center gap-2" style={{ color: colors.lightText }}>
+                      <Target size={20} style={{ color: colors.accentPink }} /> Posture Zones
                     </h3>
 
                     <ThresholdSlider
                       label="Excellent Zone (Strict)"
                       description="Green Zone - Perfect posture range"
                       value={settings.excellentThreshold}
-                      color={COLORS.exerciseGreen}
+                      color={colors.exerciseGreen}
                       max={15}
                       onChange={(v) => setSettings(s => ({ ...s, excellentThreshold: v }))}
+                      colors={colors}
                     />
                     <ThresholdSlider
                       label="Good Zone"
                       description="Blue Zone - Acceptable range"
                       value={settings.goodThreshold}
-                      color={COLORS.standBlue}
+                      color={colors.standBlue}
                       max={30}
                       onChange={(v) => setSettings(s => ({ ...s, goodThreshold: v }))}
+                      colors={colors}
                     />
                     <ThresholdSlider
                       label="Fair Zone (Warning)"
                       description="Yellow Zone - Getting slouchy"
                       value={settings.fairThreshold}
-                      color={COLORS.warningYellow}
+                      color={colors.warningYellow}
                       max={45}
                       onChange={(v) => setSettings(s => ({ ...s, fairThreshold: v }))}
+                      colors={colors}
                     />
 
-                    <div className="pt-6 border-t border-white/10">
+                    <div className="pt-6 border-t" style={{ borderColor: colors.borderColor }}>
                       <div className="flex justify-between items-center mb-4">
                         <div>
-                          <span className="text-base font-medium block">Sensitivity</span>
-                          <span className="text-xs text-gray-500">Adjust how quickly the angle updates</span>
+                          <span className="text-base font-medium block" style={{ color: colors.lightText }}>Sensitivity</span>
+                          <span className="text-xs mt-0.5" style={{ color: colors.mutedText }}>Adjust how quickly the angle updates</span>
                         </div>
-                        <span className="text-xs px-2 py-1 rounded bg-white/10">{settings.smoothingAlpha}</span>
+                        <span className="text-xs px-2 py-1 rounded" style={{ backgroundColor: colors.inputBg, color: colors.lightText }}>{settings.smoothingAlpha}</span>
                       </div>
                       <input
                         type="range"
@@ -673,7 +785,8 @@ export default function App() {
                       setSettings(DEFAULT_SETTINGS);
                       showNotification('success', 'Settings Reset');
                     }}
-                    className="w-full py-4 rounded-xl border border-white/10 text-gray-400 hover:text-white hover:bg-white/5 transition-colors flex items-center justify-center gap-2 font-medium"
+                    className="w-full py-4 rounded-xl border hover:opacity-80 transition-colors flex items-center justify-center gap-2 font-medium"
+                    style={{ borderColor: colors.borderColor, color: colors.mutedText, backgroundColor: colors.panelBg }}
                   >
                     <RotateCcw size={18} /> Reset to Defaults
                   </button>
@@ -685,25 +798,28 @@ export default function App() {
         </div>
 
         {/* --- BOTTOM NAV (Mobile Only) --- */}
-        <div className="md:hidden p-4 bg-neutral-900/90 backdrop-blur-xl border-t border-white/10">
+        <div className="md:hidden p-4 backdrop-blur-xl border-t z-50 relative" style={{ backgroundColor: colors.panelBg, borderColor: colors.borderColor }}>
           <div className="flex justify-around items-center">
             <NavIcon
               icon={<LayoutDashboard />}
               label="Track"
               active={activeTab === 'dashboard'}
               onClick={() => setActiveTab('dashboard')}
+              colors={colors}
             />
             <NavIcon
               icon={<CalendarIcon />}
               label="History"
               active={activeTab === 'history'}
               onClick={() => setActiveTab('history')}
+              colors={colors}
             />
             <NavIcon
               icon={<SettingsIcon />}
               label="Settings"
               active={activeTab === 'settings'}
               onClick={() => setActiveTab('settings')}
+              colors={colors}
             />
           </div>
         </div>
@@ -733,38 +849,47 @@ export default function App() {
 
 // --- SUB COMPONENTS ---
 
-const SidebarLink = ({ icon, label, active, onClick }) => (
+const SidebarLink = ({ icon, label, active, onClick, colors }) => (
   <button
     onClick={onClick}
     className={`w-full flex items-center gap-4 px-4 py-3 rounded-xl transition-all duration-200 group ${active
-      ? 'bg-white/10 text-white shadow-lg'
-      : 'text-gray-400 hover:text-white hover:bg-white/5'
+      ? 'shadow-lg'
+      : 'hover:opacity-80'
       }`}
+    style={{
+      backgroundColor: active ? colors.inputBg : 'transparent',
+      color: active ? colors.lightText : colors.mutedText
+    }}
   >
     {React.cloneElement(icon, {
       size: 20,
-      className: active ? 'text-pink-500' : 'text-gray-400 group-hover:text-white'
+      style: { color: active ? colors.accentPink : colors.mutedText },
+      className: ''
     })}
     <span className="font-medium text-sm">{label}</span>
-    {active && <div className="ml-auto w-1.5 h-1.5 rounded-full bg-pink-500" />}
+    {active && <div className="ml-auto w-1.5 h-1.5 rounded-full" style={{ backgroundColor: colors.accentPink }} />}
   </button>
 );
 
-const NavIcon = ({ icon, label, active, onClick }) => (
+const NavIcon = ({ icon, label, active, onClick, colors }) => (
   <button
     onClick={onClick}
-    className={`flex flex-col items-center gap-1 transition-all duration-300 ${active ? 'text-pink-500 scale-110' : 'text-gray-500 hover:text-gray-300'}`}
+    className={`flex flex-col items-center gap-1 transition-all duration-300 ${active ? 'scale-110' : ''}`}
+    style={{ color: active ? colors.accentPink : colors.mutedText }}
   >
     {React.cloneElement(icon, { size: active ? 24 : 22, strokeWidth: active ? 2.5 : 2 })}
     <span className="text-[10px] font-medium">{label}</span>
   </button>
 );
 
-const StatBox = ({ label, value, icon, color, trend, large }) => (
-  <div className={`bg-neutral-900/50 rounded-3xl p-6 flex items-center justify-between border border-white/10 transition-transform hover:scale-[1.02] ${large ? 'py-8' : ''}`}>
+const StatBox = ({ label, value, icon, color, trend, large, colors }) => (
+  <div
+    className={`rounded-3xl p-6 flex items-center justify-between border transition-transform hover:scale-[1.02] ${large ? 'py-8' : ''}`}
+    style={{ backgroundColor: colors.panelBg, borderColor: colors.borderColor }}
+  >
     <div className="flex flex-col justify-center">
-      <span className="text-xs uppercase tracking-wider text-gray-500 font-bold mb-1">{label}</span>
-      <span className="text-3xl font-bold">{value}</span>
+      <span className="text-xs uppercase tracking-wider font-bold mb-1" style={{ color: colors.mutedText }}>{label}</span>
+      <span className="text-3xl font-bold" style={{ color: colors.lightText }}>{value}</span>
       {trend && <span className="text-xs text-green-400 mt-1 font-medium">{trend} this session</span>}
     </div>
     <div
@@ -780,7 +905,7 @@ const StatBox = ({ label, value, icon, color, trend, large }) => (
   </div>
 );
 
-const ThresholdSlider = ({ label, description, value, color, max, onChange }) => {
+const ThresholdSlider = ({ label, description, value, color, max, onChange, colors }) => {
   const min = 1;
   const percentage = ((value - min) / (max - min)) * 100;
 
@@ -788,10 +913,10 @@ const ThresholdSlider = ({ label, description, value, color, max, onChange }) =>
     <div>
       <div className="flex justify-between items-end mb-4">
         <div>
-          <span className="text-sm font-bold block text-white">{label}</span>
-          <span className="text-xs text-gray-500 mt-0.5">{description}</span>
+          <span className="text-sm font-bold block" style={{ color: colors.lightText }}>{label}</span>
+          <span className="text-xs mt-0.5" style={{ color: colors.mutedText }}>{description}</span>
         </div>
-        <span className="px-3 py-1 rounded-lg text-sm font-bold bg-white/5 text-white border border-white/10 min-w-[3rem] text-center">
+        <span className="px-3 py-1 rounded-lg text-sm font-bold border min-w-[3rem] text-center" style={{ backgroundColor: colors.inputBg, borderColor: colors.borderColor, color: colors.lightText }}>
           {value}°
         </span>
       </div>
@@ -857,9 +982,4 @@ const formatTime = (seconds) => {
   return `${mins}:${secs.toString().padStart(2, '0')}`;
 };
 
-const getScoreColor = (score) => {
-  if (score >= 90) return COLORS.exerciseGreen;
-  if (score >= 75) return COLORS.standBlue;
-  if (score >= 50) return COLORS.warningYellow;
-  return COLORS.moveRed;
-};
+

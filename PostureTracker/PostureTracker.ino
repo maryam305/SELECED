@@ -4,10 +4,11 @@
 #include <WiFi.h>
 #include <WebServer.h>
 
-// --- WIFI CREDENTIALS ---
-// REPLACE WITH YOUR NETWORK DETAILS
-const char* ssid = "Batates";
-const char* password = "Kmyamyamya";
+// --- ACCESS POINT CREDENTIALS ---
+// This is the name of the WiFi network the ESP32 will CREATE.
+const char* ssid = "Posture_Alert_AP";
+// This is the password required to join the ESP32's network (must be at least 8 chars).
+const char* password = "12345678";
 
 Adafruit_MPU6050 mpu;
 WebServer server(80);
@@ -93,23 +94,18 @@ void setup(void) {
   // Wait for serial monitor to open
   while (!Serial) delay(10); 
 
-  // --- WIFI SETUP ---
+  // --- ACCESS POINT SETUP ---
   Serial.println();
-  Serial.print("Connecting to ");
-  Serial.println(ssid);
+  Serial.print("Configuring Access Point...");
 
-  WiFi.begin(ssid, password);
+  // Create the Access Point
+  // If you want an open network (no password), use: WiFi.softAP(ssid);
+  WiFi.softAP(ssid, password);
 
-  // Wait for connection
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-
-  Serial.println("");
-  Serial.println("WiFi connected.");
-  Serial.println("IP address: ");
-  Serial.println(WiFi.localIP());
+  IPAddress myIP = WiFi.softAPIP();
+  Serial.println("AP Created.");
+  Serial.print("AP SSID: "); Serial.println(ssid);
+  Serial.print("AP IP address: "); Serial.println(myIP); // Usually 192.168.4.1
 
   // --- SENSOR SETUP ---
   if (!mpu.begin()) {
@@ -170,14 +166,11 @@ void loop() {
   float final_pitch = (angle_pitch - pitch_offset) * RAD_TO_DEG;
   float final_roll = (angle_roll - roll_offset) * RAD_TO_DEG;
 
-  // Update global variable for web server (using roll as the primary posture angle, but could be pitch depending on mounting)
-  // Assuming 'roll' is the side-to-side tilt or forward/back depending on orientation. 
-  // Let's use the one that changes most significantly. For now, we'll expose 'final_roll' as the main angle.
-  // You can change this to final_pitch if the sensor is mounted differently.
+  // Update global variable for web server
   current_angle_for_web = final_roll; 
 
   // --- 7. Print and Control ---
-  // Print less frequently to avoid slowing down the loop too much, but enough for debugging
+  // Print less frequently to avoid slowing down the loop too much
   static unsigned long lastPrint = 0;
   if (millis() - lastPrint > 100) {
     Serial.print("Pitch: ");
